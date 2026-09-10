@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Polyglot Lexicon</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <style>
+        :root {
+            --system-blue: #007AFF;
+            --system-bg: #F2F2F7;
+            --system-bg-elevated: #FFFFFF;
+            --label-primary: #000000;
+            --label-secondary: #8E8E93;
+            --separator: rgba(60, 60, 67, 0.29);
+            --nav-bg: rgba(255, 255, 255, 0.85);
+            --safe-area-inset-top: env(safe-area-inset-top, 0px);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --system-blue: #0A84FF;
+                --system-bg: #000000;
+                --system-bg-elevated: #1C1C1E;
+                --label-primary: #FFFFFF;
+                --label-secondary: #EBEBF599;
+                --separator: rgba(84, 84, 88, 0.6);
+                --nav-bg: rgba(28, 28, 30, 0.85);
+            }
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--system-bg);
+            color: var(--label-primary);
+            overflow-x: hidden;
+            font-size: 17px;
+        }
+
+        /* Navigation Bar */
+        .nav-bar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: calc(44px + var(--safe-area-inset-top));
+            padding-top: var(--safe-area-inset-top);
+            background-color: var(--nav-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 0.5px solid var(--separator);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px; z-index: 100;
+        }
+
+        .nav-title { position: absolute; left: 50%; transform: translateX(-50%); font-weight: 600; font-size: 17px; }
+
+        .nav-button {
+            color: var(--system-blue);
+            background: none; border: none; font-size: 17px; cursor: pointer; padding: 0;
+            display: flex; align-items: center; gap: 4px;
+        }
+
+        /* Views */
+        .view {
+            display: none; padding-top: calc(44px + var(--safe-area-inset-top));
+            min-height: 100vh; width: 100vw; position: absolute; top: 0; left: 0;
+            transition: transform 0.4s cubic-bezier(0.36, 0.66, 0.04, 1);
+        }
+        .view.active { display: block; transform: translateX(0); }
+        .view.slide-out-left { display: block; transform: translateX(-30%); opacity: 0.8; }
+        .view.slide-in-right { display: block; transform: translateX(100%); }
+
+        .container { padding: 20px 16px; max-width: 800px; margin: 0 auto; }
+        h1.large-title { font-size: 34px; font-weight: 700; margin: 10px 0 20px; letter-spacing: 0.37px; }
+
+        /* Grouped Tables */
+        .list-group { background-color: var(--system-bg-elevated); border-radius: 10px; overflow: hidden; margin-bottom: 24px; }
+        .list-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 0.5px solid var(--separator); cursor: pointer; }
+        .list-item:active { background-color: var(--separator); }
+        .list-item:last-child { border-bottom: none; }
+        .item-title { font-size: 17px; font-weight: 500; }
+        .item-subtitle { font-size: 15px; color: var(--label-secondary); margin-top: 2px; }
+
+        /* Search */
+        .search-container { margin: 10px 0 20px; position: relative; }
+        .search-container input { width: 100%; background-color: var(--separator); border: none; border-radius: 10px; padding: 8px 12px 8px 36px; font-size: 17px; color: var(--label-primary); outline: none; }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--label-secondary); }
+
+        /* Result Block */
+        .result-block { background-color: var(--system-blue); color: #fff; padding: 24px; border-radius: 14px; text-align: center; margin-bottom: 24px; box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3); }
+        .result-primary { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+        .result-secondary { font-size: 17px; opacity: 0.9; }
+
+        /* Pickers */
+        .form-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 0.5px solid var(--separator); }
+        .form-row:last-child { border-bottom: none; }
+        .form-label { font-size: 17px; }
+        select.hig-picker { appearance: none; background: transparent; border: none; font-size: 17px; color: var(--label-secondary); text-align: right; outline: none; cursor: pointer; direction: rtl; }
+        select.hig-picker option { direction: ltr; }
+        .hig-picker-wrapper { position: relative; display: flex; align-items: center; }
+        .hig-picker-wrapper::after { content: "›"; font-size: 20px; margin-left: 8px; color: var(--label-secondary); }
+
+        /* Segmented */
+        .segmented-control { display: flex; background-color: var(--separator); border-radius: 8px; padding: 2px; margin-bottom: 20px; }
+        .segment { flex: 1; text-align: center; padding: 6px 0; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; }
+        .segment.active { background-color: var(--system-bg-elevated); box-shadow: 0 1px 3px rgba(0,0,0,0.12); color: var(--label-primary); }
+        
+        /* Apple HIG Loading Overlay */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            z-index: 999; display: none; align-items: center; justify-content: center;
+        }
+        .loading-card {
+            background-color: var(--nav-bg); padding: 30px; border-radius: 14px;
+            display: flex; flex-direction: column; align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); width: 220px; text-align: center;
+        }
+        .hig-spinner {
+            width: 40px; height: 40px; border: 4px solid var(--separator);
+            border-top-color: var(--label-primary); border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 16px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loading-text { font-size: 15px; font-weight: 500; color: var(--label-primary); }
+        #loading-subtext { font-size: 13px; color: var(--label-secondary); margin-top: 4px; }
+    </style>
+</head>
+<body>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay">
+        <div class="loading-card">
+            <div class="hig-spinner"></div>
+            <div id="loading-text">Starting...</div>
+            <div id="loading-subtext">Checking local cache</div>
+        </div>
+    </div>
+
+    <!-- VIEW 1: HOME -->
+    <div id="view-home" class="view active">
+        <div class="nav-bar"><div class="nav-title">Lexicon Setup</div></div>
+        <div class="container">
+            <h1 class="large-title">Choose Language</h1>
+            <p style="color: var(--label-secondary); margin-bottom: 24px;">Tap a language to download or load its database. It will be cached locally on your device for fast access.</p>
+            
+            <div class="list-group">
+                <!-- ALL URLS PROPERLY POINT TO RAW.GITHUBUSERCONTENT.COM NOW -->
+                <div class="list-item" onclick="loadLanguage('mandarin', 'https://raw.githubusercontent.com/OpenTuwa/OpenWorldDialects/main/Sinitic/mandarin.sqlite')">
+                    <div><div class="item-title">Standard Mandarin</div><div class="item-subtitle">Requires ~10MB to download</div></div>
+                    <span style="color: var(--label-secondary);">›</span>
+                </div>
+                <div class="list-item" onclick="loadLanguage('arabic', 'https://raw.githubusercontent.com/OpenTuwa/OpenWorldDialects/main/MENA/arabic.sqlite')">
+                    <div><div class="item-title">Arabic Dialects</div><div class="item-subtitle">Requires ~25MB to download</div></div>
+                    <span style="color: var(--label-secondary);">›</span>
+                </div>
+                <div class="list-item" onclick="loadLanguage('malay', 'https://raw.githubusercontent.com/OpenTuwa/OpenWorldDialects/main/Austronesia/Malay.sqlite')">
+                    <div><div class="item-title">Malay Dialects</div><div class="item-subtitle">Requires ~15MB to download</div></div>
+                    <span style="color: var(--label-secondary);">›</span>
+                </div>
+                <div class="list-item" onclick="loadLanguage('hindi', 'https://raw.githubusercontent.com/OpenTuwa/OpenWorldDialects/main/India/hindi.sqlite')">
+                    <div><div class="item-title">Hindi Dialects</div><div class="item-subtitle">Requires ~35MB to download</div></div>
+                    <span style="color: var(--label-secondary);">›</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 2: SEARCH -->
+    <div id="view-search" class="view slide-in-right">
+        <div class="nav-bar">
+            <button class="nav-button" onclick="navTo('view-home', 'view-search')">
+                <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor"><path d="M10.5 19.5L.5 10l10-9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Back
+            </button>
+            <div class="nav-title" id="search-nav-title">Dictionary</div>
+            <div style="width: 50px;"></div>
+        </div>
+        <div class="container">
+            <h1 class="large-title">Lexicon</h1>
+            <div class="search-container">
+                <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="search" id="search-input" placeholder="Search base word or meaning..." onkeyup="filterDictionary()">
+            </div>
+            <div class="list-group" id="word-list"></div>
+        </div>
+    </div>
+
+    <!-- VIEW 3: DETAILS -->
+    <div id="view-details" class="view slide-in-right">
+        <div class="nav-bar">
+            <button class="nav-button" onclick="navTo('view-search', 'view-details')">
+                <svg width="12" height="20" viewBox="0 0 12 20" fill="currentColor"><path d="M10.5 19.5L.5 10l10-9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Search
+            </button>
+            <div class="nav-title" id="detail-nav-title">Details</div>
+            <div style="width: 60px;"></div>
+        </div>
+        <div class="container">
+            <div class="result-block">
+                <div class="result-primary" id="res-primary">--</div>
+                <div class="result-secondary" id="res-secondary">--</div>
+                <div class="result-secondary" id="res-tertiary" style="margin-top: 6px; font-size: 14px; opacity: 0.7;"></div>
+            </div>
+
+            <div class="segmented-control" id="type-segment" style="display: none;">
+                <div class="segment active" id="seg-conj" onclick="switchTab('conj')">Conjugations</div>
+                <div class="segment" id="seg-nom" onclick="switchTab('nom')">Nominals</div>
+            </div>
+
+            <div class="list-group" id="dynamic-filters"></div>
+        </div>
+    </div>
+
+    <script>
+        const uiDictionary = {
+            person: { "1": "1st Person", "2": "2nd Person", "3": "3rd Person" },
+            number: { "sg": "Singular", "pl": "Plural" },
+            gender: { "m": "Masculine", "f": "Feminine", "c": "Common / Both" },
+            polarity: { "affirmative": "Affirmative", "negative": "Negative" },
+            aspect: { "past": "Past Tense", "present": "Present Tense", "future": "Future Tense", "progressive": "Progressive", "imperative": "Imperative (Command)" },
+            category: {
+                "active_participle": "Active Participle", "passive_participle": "Passive Participle",
+                "noun_of_place": "Noun of Place", "noun_of_tool": "Noun of Tool", "masdar": "Verbal Noun (Masdar)", "mnemonic": "Mnemonic",
+                "infinitive": "Infinitive", "doer_masculine_sg": "Doer (Masc. Sg.)", "doer_feminine_sg": "Doer (Fem. Sg.)", "doer_plural": "Doer (Plural)", "gerundive": "Gerundive"
+            },
+            dialect: {
+                "standard": "Standard", "colloquial": "Colloquial / Urban",
+                "msa": "Modern Standard Arabic", "egyptian": "Egyptian Masri", "levantine": "Levantine Shami", "levantine_2_palestine": "Palestinian", 
+                "iraqi": "Mesopotamian Iraqi", "gulf": "Khaliji Gulf", "najdi": "Najdi Peninsular", "hijazi": "Hijazi Western", 
+                "yemeni": "South Arabian Yemeni", "sudanese": "Sudanese Nilotic", "darija": "Moroccan Darija", "tunisian": "Tunisian Tounsi",
+                "kelantanese": "Kelantanese", "terengganuan": "Terengganuan", "kedahan": "Kedahan", "perakian": "Perakian", 
+                "minang_n9": "Negeri Sembilan", "sarawakian": "Sarawakian", "sabahan": "Sabahan",
+                "bambaiya": "Bambaiya (Mumbai Slang)", "bhojpuri": "Bhojpuri", "haryanvi": "Haryanvi", "awadhi": "Awadhi"
+            }
+        };
+
+        function humanizeValue(dimension, rawValue) {
+            if (!rawValue) return "";
+            if (uiDictionary[dimension] && uiDictionary[dimension][rawValue]) return uiDictionary[dimension][rawValue];
+            return String(rawValue).split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        }
+
+        let SQL; let db = null; let dbSchema = {}; let allWords = [];
+        let currentWordData = null; let currentConjugations = []; let currentNominals = []; let activeTab = 'conj';
+        
+        const POSSIBLE_CONJ_DIMENSIONS = ["dialect", "aspect", "polarity", "person", "number", "gender"];
+        const POSSIBLE_NOM_DIMENSIONS = ["category", "polarity"];
+
+        // --- IndexedDB Caching Engine ---
+        const dbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open('PolyglotCache', 1);
+            req.onupgradeneeded = e => e.target.result.createObjectStore('sqliteFiles');
+            req.onsuccess = e => resolve(e.target.result);
+            req.onerror = e => reject(e.target.error);
+        });
+
+        async function getCachedFile(key) {
+            const idb = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = idb.transaction('sqliteFiles', 'readonly');
+                const req = tx.objectStore('sqliteFiles').get(key);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        async function cacheFile(key, buffer) {
+            const idb = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = idb.transaction('sqliteFiles', 'readwrite');
+                const req = tx.objectStore('sqliteFiles').put(buffer, key);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        // --- Core Application Logic ---
+        initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` })
+            .then(sqlModule => { SQL = sqlModule; })
+            .catch(err => alert("Failed to load SQL.js Engine: " + err));
+
+        function navTo(targetId, currentId) {
+            document.getElementById(currentId).classList.remove('active');
+            if (targetId === 'view-search' && currentId === 'view-details') {
+                document.getElementById(currentId).classList.add('slide-in-right');
+            } else {
+                document.getElementById(currentId).classList.remove('slide-in-right', 'slide-out-left');
+            }
+            const target = document.getElementById(targetId);
+            target.classList.add('active');
+            target.classList.remove('slide-in-right', 'slide-out-left');
+            window.scrollTo(0, 0);
+        }
+
+        // Custom Overlay Controller
+        function setLoaderState(title, subtext = "") {
+            document.getElementById('loading-overlay').style.display = 'flex';
+            document.getElementById('loading-text').textContent = title;
+            document.getElementById('loading-subtext').textContent = subtext;
+        }
+
+        // Download or Load from Cache
+        async function loadLanguage(languageId, url) {
+            try {
+                setLoaderState("Checking Cache...", "Looking for existing database");
+
+                let arrayBuffer = await getCachedFile(languageId);
+
+                if (!arrayBuffer) {
+                    setLoaderState("Connecting...", "Starting download");
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    
+                    const contentLength = response.headers.get('content-length');
+                    const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+                    
+                    const reader = response.body.getReader();
+                    const chunks = [];
+                    let receivedBytes = 0;
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        receivedBytes += value.length;
+                        
+                        if (totalBytes) {
+                            const percent = Math.round((receivedBytes / totalBytes) * 100);
+                            setLoaderState(`Downloading... ${percent}%`, `${(receivedBytes / 1048576).toFixed(1)} MB`);
+                        } else {
+                            setLoaderState("Downloading...", `${(receivedBytes / 1048576).toFixed(1)} MB`);
+                        }
+                    }
+
+                    setLoaderState("Saving to cache...", "So you don't have to download it again");
+                    const allChunks = new Uint8Array(receivedBytes);
+                    let position = 0;
+                    for (const chunk of chunks) {
+                        allChunks.set(chunk, position);
+                        position += chunk.length;
+                    }
+                    arrayBuffer = allChunks.buffer;
+
+                    await cacheFile(languageId, arrayBuffer);
+                }
+
+                setLoaderState("Loading Database...", "Booting SQL engine");
+                setTimeout(() => {
+                    db = new SQL.Database(new Uint8Array(arrayBuffer));
+                    analyzeSchema();
+                    loadDictionary();
+                    document.getElementById('loading-overlay').style.display = 'none';
+                    navTo('view-search', 'view-home');
+                }, 100);
+
+            } catch (error) {
+                console.error(error);
+                alert("Failed to load language: " + error.message);
+                document.getElementById('loading-overlay').style.display = 'none';
+            }
+        }
+
+        function analyzeSchema() {
+            dbSchema = { primaryTable: null, fkCol: null, baseCol: null, meaningCol: null, hasNominals: false };
+            let res = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+            let tables = res[0].values.map(v => v[0]);
+            
+            if (tables.includes('verbs')) dbSchema.primaryTable = 'verbs';
+            else if (tables.includes('roots')) dbSchema.primaryTable = 'roots';
+
+            dbSchema.hasNominals = tables.includes('nominals');
+            let cols = db.exec(`PRAGMA table_info(${dbSchema.primaryTable})`)[0].values.map(v => v[1]);
+            
+            if (cols.includes('base_pinyin')) { dbSchema.baseCol = 'base_pinyin'; dbSchema.meaningCol = 'sub_english'; }
+            else if (cols.includes('mother_arabic')) { dbSchema.baseCol = 'mother_arabic'; dbSchema.meaningCol = 'sub_english'; }
+            else if (cols.includes('base_root')) { dbSchema.baseCol = 'base_root'; dbSchema.meaningCol = 'meaning_english'; }
+
+            if (dbSchema.primaryTable === 'verbs') dbSchema.fkCol = 'verb_id';
+            if (dbSchema.primaryTable === 'roots') dbSchema.fkCol = 'root_id';
+        }
+
+        function loadDictionary() {
+            const sql = `SELECT id, ${dbSchema.baseCol} as base, ${dbSchema.meaningCol} as meaning FROM ${dbSchema.primaryTable} ORDER BY id ASC`;
+            const stmt = db.prepare(sql);
+            allWords = [];
+            while (stmt.step()) { allWords.push(stmt.getAsObject()); }
+            stmt.free();
+            document.getElementById('search-input').value = ""; 
+            renderDictionary(allWords);
+        }
+
+        function renderDictionary(words) {
+            const list = document.getElementById('word-list');
+            list.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            words.slice(0, 200).forEach(w => {
+                const item = document.createElement('div');
+                item.className = 'list-item';
+                item.onclick = () => openWordDetails(w);
+                item.innerHTML = `<div><div class="item-title">${w.base}</div><div class="item-subtitle">${w.meaning}</div></div><span style="color: var(--label-secondary);">›</span>`;
+                frag.appendChild(item);
+            });
+            list.appendChild(frag);
+        }
+
+        function filterDictionary() {
+            const q = document.getElementById('search-input').value.toLowerCase();
+            if (!q) { renderDictionary(allWords); return; }
+            const filtered = allWords.filter(w => (w.base && w.base.toLowerCase().includes(q)) || (w.meaning && w.meaning.toLowerCase().includes(q)));
+            renderDictionary(filtered);
+        }
+
+        function openWordDetails(word) {
+            currentWordData = word;
+            document.getElementById('detail-nav-title').textContent = word.base;
+            
+            const cStmt = db.prepare(`SELECT * FROM conjugations WHERE ${dbSchema.fkCol} = ${word.id}`);
+            currentConjugations = [];
+            while (cStmt.step()) { currentConjugations.push(cStmt.getAsObject()); }
+            cStmt.free();
+
+            currentNominals = [];
+            if (dbSchema.hasNominals) {
+                const nStmt = db.prepare(`SELECT * FROM nominals WHERE ${dbSchema.fkCol} = ${word.id}`);
+                while (nStmt.step()) { currentNominals.push(nStmt.getAsObject()); }
+                nStmt.free();
+            }
+
+            const typeSeg = document.getElementById('type-segment');
+            if (currentNominals.length > 0) {
+                typeSeg.style.display = 'flex';
+                switchTab('conj'); 
+            } else {
+                typeSeg.style.display = 'none';
+                activeTab = 'conj';
+                buildFiltersAndRender();
+            }
+            navTo('view-details', 'view-search');
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.getElementById('seg-conj').classList.toggle('active', tab === 'conj');
+            document.getElementById('seg-nom').classList.toggle('active', tab === 'nom');
+            buildFiltersAndRender();
+        }
+
+        function buildFiltersAndRender() {
+            const container = document.getElementById('dynamic-filters');
+            container.innerHTML = '';
+            
+            const dataset = activeTab === 'conj' ? currentConjugations : currentNominals;
+            if (!dataset.length) {
+                document.getElementById('res-primary').textContent = "No Data";
+                return;
+            }
+
+            const dimensions = activeTab === 'conj' ? POSSIBLE_CONJ_DIMENSIONS : POSSIBLE_NOM_DIMENSIONS;
+            const availableFilters = {};
+
+            dimensions.forEach(dim => {
+                if (dataset[0].hasOwnProperty(dim)) {
+                    const uniqueVals = [...new Set(dataset.map(row => row[dim]))].filter(Boolean);
+                    if (uniqueVals.length > 0) availableFilters[dim] = uniqueVals;
+                }
+            });
+
+            for (const [dim, values] of Object.entries(availableFilters)) {
+                if (values.length <= 1) continue; 
+
+                const row = document.createElement('div');
+                row.className = 'form-row';
+                
+                const label = document.createElement('div');
+                label.className = 'form-label';
+                label.textContent = humanizeValue('dimension_name_fallback', dim);
+                
+                const wrapper = document.createElement('div');
+                wrapper.className = 'hig-picker-wrapper';
+                
+                const select = document.createElement('select');
+                select.className = 'hig-picker';
+                select.id = `filter-${dim}`;
+                select.onchange = updateResultCard;
+
+                values.forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val;
+                    opt.textContent = humanizeValue(dim, val);
+                    select.appendChild(opt);
+                });
+
+                wrapper.appendChild(select); row.appendChild(label); row.appendChild(wrapper); container.appendChild(row);
+            }
+            updateResultCard();
+        }
+
+        function updateResultCard() {
+            const dataset = activeTab === 'conj' ? currentConjugations : currentNominals;
+            if (!dataset.length) return;
+
+            const selects = document.querySelectorAll('.hig-picker');
+            const activeFilters = {};
+            const readableFilters = []; 
+
+            selects.forEach(sel => {
+                const dim = sel.id.replace('filter-', '');
+                activeFilters[dim] = sel.value;
+                readableFilters.push(humanizeValue(dim, sel.value)); 
+            });
+
+            let matchedRow = dataset.find(row => {
+                for (const [dim, val] of Object.entries(activeFilters)) {
+                    if (row[dim] != val) return false;
+                }
+                return true;
+            });
+
+            if (!matchedRow) matchedRow = dataset[0]; 
+
+            let primary = "--", secondary = "";
+            
+            if (matchedRow.phrase) primary = matchedRow.phrase;
+            else if (matchedRow.pinyin) primary = matchedRow.pinyin;
+            else if (matchedRow.arabic && matchedRow.arabizi) {
+                primary = matchedRow.arabic;
+                secondary = matchedRow.arabizi;
+            }
+
+            document.getElementById('res-primary').textContent = primary;
+            document.getElementById('res-secondary').textContent = secondary || currentWordData.meaning;
+            document.getElementById('res-tertiary').textContent = readableFilters.join(' • ');
+        }
+    </script>
+</body>
+</html>
