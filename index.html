@@ -165,6 +165,10 @@
                     <div><div class="item-title">Hindi Dialects</div><div class="item-subtitle">Requires ~35MB to download</div></div>
                     <span style="color: var(--label-secondary);">›</span>
                 </div>
+                <div class="list-item" onclick="loadLanguage('spanish', 'https://raw.githubusercontent.com/OpenTuwa/OpenWorldDialects/main/Romance/spanish.sqlite')">
+                    <div><div class="item-title">Spanish Dialects</div><div class="item-subtitle">Requires ~20MB to download</div></div>
+                    <span style="color: var(--label-secondary);">›</span>
+                </div>
             </div>
         </div>
     </div>
@@ -219,10 +223,13 @@
             number: { "sg": "Singular", "pl": "Plural" },
             gender: { "m": "Masculine", "f": "Feminine", "c": "Common / Both" },
             polarity: { "affirmative": "Affirmative", "negative": "Negative" },
-            aspect: { "past": "Past Tense", "present": "Present Tense", "future": "Future Tense", "progressive": "Progressive", "imperative": "Imperative (Command)" },
+            aspect: { 
+                "past": "Past Tense", "imperfect": "Imperfect", "present": "Present Tense", 
+                "future": "Future Tense", "progressive": "Progressive", "imperative": "Imperative (Command)" 
+            },
             category: {
                 "active_participle": "Active Participle", "passive_participle": "Passive Participle",
-                "noun_of_place": "Noun of Place", "noun_of_tool": "Noun of Tool", "masdar": "Verbal Noun (Masdar)", "mnemonic": "Mnemonic",
+                "noun_of_place": "Noun of Place", "noun_of_tool": "Noun of Tool", "masdar": "Verbal Noun (Masdar / Gerund)", "mnemonic": "Mnemonic",
                 "infinitive": "Infinitive", "doer_masculine_sg": "Doer (Masc. Sg.)", "doer_feminine_sg": "Doer (Fem. Sg.)", "doer_plural": "Doer (Plural)", "gerundive": "Gerundive"
             },
             dialect: {
@@ -232,7 +239,8 @@
                 "yemeni": "South Arabian Yemeni", "sudanese": "Sudanese Nilotic", "darija": "Moroccan Darija", "tunisian": "Tunisian Tounsi",
                 "kelantanese": "Kelantanese", "terengganuan": "Terengganuan", "kedahan": "Kedahan", "perakian": "Perakian", 
                 "minang_n9": "Negeri Sembilan", "sarawakian": "Sarawakian", "sabahan": "Sabahan",
-                "bambaiya": "Bambaiya (Mumbai Slang)", "bhojpuri": "Bhojpuri", "haryanvi": "Haryanvi", "awadhi": "Awadhi"
+                "bambaiya": "Bambaiya (Mumbai Slang)", "bhojpuri": "Bhojpuri", "haryanvi": "Haryanvi", "awadhi": "Awadhi",
+                "peninsular": "Peninsular (Spain)", "latam": "Latin American", "rioplatense": "Rioplatense", "chilean": "Chilean"
             }
         };
 
