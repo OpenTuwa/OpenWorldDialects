@@ -102,8 +102,124 @@ class MITLicensedRootPipeline:
                 return verb + c2 + "ing"
         return verb + "ing"
 
+    # Common English verbs for concise-gloss validation. The first word of
+    # an extracted infinitive must be a real verb, otherwise phrases like
+    # "refers to foul, unseemly speech" would misparse as "To foul".
+    KNOWN_ENGLISH_VERBS = frozenset("""
+        abandon act add admit adopt advance affect agree allow answer appear apply
+        argue arrange arrive ask attack attend avoid bake base beat become begin
+        behave believe belong bend bind bite bleed bless blow boil bound break
+        breathe breed bring build burn burst bury buy call calm capture care
+        carry cast catch cause cease change charge chase cheat check chew choose
+        claim clean clear climb close open cook cool copy correct cost count
+        cover crack crash crawl create creep cross crush cry cure cut deal decay
+        decide declare decline defeat defend delay demand deny depend depict
+        derive describe desire destroy devote die digest dip direct disappear
+        discover discuss dismiss displace display dissolve dive divide do draw
+        dream dress drink drive drop dry dye earn eat elect elevate empty enact
+        enclose encounter encourage end endure enforce engage enjoy enter erect
+        escape establish esteem evade examine exceed exchange excite exclude
+        exist expand expect explain explode export expose extend face fade fail
+        fall fasten fear feed feel fight fill find finish fit fix flee fling
+        float flood flow fly fold follow forbid force forget forgive form found
+        freeze frighten fry fulfill gain gather gaze get give glance glow go
+        govern grab grant grasp graze greet grind grow guard guess guide halt
+        hammer hang happen harden harm hate have head heal hear heat help hide
+        hinder hiss hit hold honor hope hop hug hunt hurry hurt hymn ignore
+        imagine immerse imply incline include increase incur indicate induce
+        infer infest inflate inflict inform inherit inject injure inquire insert
+        insist inspect inspire install intend interest interfere interpret
+        interrupt invent invite invoke involve iron join joke judge jump keep
+        kick kill kiss kneel knit know label labor lack lament land last laugh
+        launch lay lead leak lean leap learn leave lend lengthen lessen let lie
+        lift light like limit limp listen live load loan lock look lose love
+        lower maintain make manage march mark marry match matter mean measure
+        meet melt mend mention merge merit milk mind miss mix moan mount mourn
+        move murder murmur nail name need nest nod note notice nourish obey
+        oblige observe obtain occupy offer offset omit open operate opine oppose
+        order organize owe own paint part pass paste pause pave pay peel peep
+        perceive perform permit persist persuade pertain phase phone pick pierce
+        pile pinch place plan plant play plead please pledge plow plug plunge
+        point polish ponder pour praise pray preach precede predict prefer
+        prepare prescribe present press pretend prevent prick print proceed
+        proclaim produce profess progress prohibit promise prompt pronounce
+        propel protect protest prove provide pull punch punish purchase push
+        put quarrel question quit race rain raise rattle reach read reap rear
+        reason recall receive reckon recognize recommend reduce refer reflect
+        refrain refresh refuse regard regret reign reject rejoice relate relax
+        release relieve rely remain remark remedy remember remind remit remove
+        render renew rent repair repeat repel report represent reproach require
+        rescue resemble resent reserve resolve respect respond rest restore
+        restrain retain retire return reveal revel ride ring rinse rise risk roar
+        roast rob rock roll rot round rouse rub ruin rule run rush sacrifice
+        sadden saddle sail salute satisfy save savor say scale scare scatter
+        scold scorch scrape scratch scream screen scrub seal search seat second
+        secure see seek seem seize select sell send sense serve settle sever
+        shade shake shape share sharpen shatter shave shear shed shine shiver
+        shock shoe shoot shop shorten shout show shrink shroud shrug shun shut
+        sift sigh signify sin sing sink sip sit skate sketch ski skip slam slap
+        slay sleep slice slide sling slip slit slope smell smile smite smoke
+        snap snare sneak sneeze sniff soar sob soil solve soothe sort sound sow
+        span spare spark speak speed spell spend spill spin split spoil spray
+        spread spring sprout spur spurn squash squeeze stab stain stalk stall
+        stamp stand stare start state stay steal steep steer step stick sting
+        stir stitch stop store storm strain strand strap stray streak stress
+        stretch stride strike string strip strive struggle study stuff stumble
+        stun submit subscribe subside suffer suffice suggest suit summon sink
+        supply support suppose suppress surface surge surpass survive suspect
+        suspend sustain swagger swallow sway swear sweat sweep swell swim swing
+        take talk tally tame tap taste teach tear tease tell tempt tend tender
+        term test thank think threaten thrive throw thrust thump tick tidy tie
+        tire title toast toll top toss touch tour trace track trade trail train
+        trample transfer transform translate trap travel tread treat tremble
+        trick trip triumph trot trouble trust try tug turn twist type unfold
+        unify unite unveil uphold upset urge use utter vanish vary vault vaunt
+        veil vent venture verify vex vibrate view visit vomit vote vow wail
+        wait waive wake walk wander want warn wash waste watch water wave wear
+        weave wed weep weigh welcome wend whet whip whirl widen wield will win
+        wind wipe wish withdraw wither withstand witness won work worry worship
+        wound wrap wreck wrench wrest wrestle wring write wrong yield yawn yell
+        lower dye threaten tint immerse devote pour shed tend lean deviate swerve
+        comprehend perceive signify ruin demolish demolish waste color record
+        prescribe decree pour forth menace pour forth color tint dip
+        """.split())
+
+    _INF_STOPS = frozenset("""
+        a an the this that these those it its them they us our him her you me
+        my your their one ones such so too very more most which what when
+        where whom whose god god's lord
+        """.split())
+
+    def extract_concise_gloss(self, text: str):
+        """Pulls the first genuine "to VERB ..." infinitive out of a verbose
+        definition ("The root X primarily means to lower, ..." -> "To lower").
+        Returns "" when nothing safe is found (gerunds like "to shedding",
+        determiners like "to a finger", and non-verbs like "to foul [speech]"
+        are all rejected); callers fall back to the legacy formatter.
+        """
+        for m in re.finditer(r"\bto\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,3})", text):
+            cand = m.group(1)
+            cand = re.split(r"[,;()/]|\bor\b|\band\b", cand)[0].strip()
+            cand = re.sub(r"\s+", " ", cand)
+            words = cand.split()
+            if not words or len(words) > 4:
+                continue
+            first = words[0].lower()
+            if len(first) < 2 or first in self._INF_STOPS:
+                continue
+            if first.endswith("ing") and len(first) > 5:
+                continue  # gerund ("to shedding"), not an infinitive
+            if first not in self.KNOWN_ENGLISH_VERBS:
+                continue
+            out = "to " + " ".join(words)
+            return out[0].upper() + out[1:]
+        return ""
+
     def format_english_definition(self, raw_text: str, mother_arabic: str) -> str:
         text = raw_text.strip()
+        concise = self.extract_concise_gloss(text)
+        if concise:
+            return concise + ("" if concise.endswith(".") else ".")
         text_lower = text.lower()
 
         infinitive_match = re.match(r"^to\s+([a-z\s,\/\(\)]+?)(?:\.|$)", text_lower)

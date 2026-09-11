@@ -17,7 +17,7 @@ DEV_CONSONANTS = {
     'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
     'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v',
     'श': 'sh', 'ष': 'sh', 'स': 's', 'ह': 'h',
-    'ड़': 'd', 'ढ़': 'dh', 'ज़': 'z', 'फ़': 'f', 'ख़': 'kh', 'ग़': 'gh', 'क़': 'q'
+    '\u095c': 'd', '\u095d': 'dh', '\u095b': 'z', '\u095f': 'f', '\u0959': 'kh', '\u095a': 'gh', '\u0958': 'q',
 }
 
 DEV_INDEPENDENT_VOWELS = {
@@ -35,13 +35,14 @@ DEV_MATRAS = {
 
 def transliterate_devanagari_stem(dev_stem: str) -> str:
     """Accurately converts a Devanagari verb stem (e.g. 'कर', 'देख', 'खा') to Roman script."""
-    text = (dev_stem.replace('क\u093c', 'क़')
-                    .replace('ख\u093c', 'ख़')
-                    .replace('ग\u093c', 'ग़')
-                    .replace('ज\u093c', 'ज़')
-                    .replace('ड\u093c', 'ड़')
-                    .replace('ढ\u093c', 'ढ़')
-                    .replace('फ\u093c', 'फ़'))
+    text = unicodedata.normalize("NFC", dev_stem)
+    # Explicit nukta composition by codepoint: NFC does NOT compose
+    # Devanagari nukta sequences in this runtime, so map base+nukta
+    # to precomposed letters directly (all-ASCII, editor-proof).
+    for _b, _p in ((0x915, 0x958), (0x916, 0x959), (0x917, 0x95A),
+                     (0x91C, 0x95B), (0x921, 0x95C), (0x922, 0x95D),
+                     (0x92B, 0x95F)):
+        text = text.replace(chr(_b) + chr(0x93C), chr(_p))
 
     out = []
     i = 0
@@ -49,6 +50,10 @@ def transliterate_devanagari_stem(dev_stem: str) -> str:
     while i < n:
         c = text[i]
 
+        # Drop a stray nukta (NFC composed the standard ones).
+        if c == '\u093c':
+            i += 1
+            continue
         # Nasalizers
         if c in ['\u0901', '\u0902']:
             out.append('n')
@@ -259,14 +264,26 @@ class HindiRomanizedRootPipeline:
                 # 2. Filter out inflected forms (only keep canonical base lemmas)
                 senses = entry.get("senses", [])
                 is_inflected = False
+                first_gloss = ""
                 meaning = ""
                 for s in senses:
                     tags = s.get("tags", [])
                     if "form-of" in tags or "inflection-template" in tags or s.get("form_of"):
                         is_inflected = True
                         break
-                    if not meaning and s.get("glosses"):
-                        meaning = s.get("glosses")[0]
+                    if not s.get("glosses"):
+                        continue
+                    if not first_gloss:
+                        first_gloss = s["glosses"][0]
+                    # Prefer a real definition over pointer glosses like
+                    # "alternative spelling of X" (e.g. निबाहना lists both;
+                    # "hans" only has the pointer, which we keep as fallback).
+                    if not meaning and not s["glosses"][0].lower().startswith(
+                            ("alternative spelling of", "alternative form of",
+                             "nuqtaless form of", "misspelling of")):
+                        meaning = s["glosses"][0]
+                if not meaning:
+                    meaning = first_gloss
 
                 if is_inflected:
                     continue
@@ -277,21 +294,27 @@ class HindiRomanizedRootPipeline:
                 if not raw_word.endswith("ना"):
                     continue
 
-                # 4. Resolve the Romanized base root
-                base_root = ""
-                # Strategy A: Check Wiktionary romanization
-                for form_info in entry.get("forms", []):
-                    if "romanization" in form_info.get("tags", []):
-                        r_form = form_info.get("form", "")
-                        clean_r = normalize_wiktionary_romanization(r_form)
-                        if clean_r.endswith("na") and len(clean_r) > 2:
-                            base_root = clean_r[:-2]
-                        break
+                # 4. Resolve the Romanized base root. Strategy B (direct
+                # Devanagari transliteration) is CANONICAL: it is
+                # deterministic and always scheme-consistent. Strategy A
+                # (Wiktionary romanization) irreparably mixes IAST
+                # ("socnā" for सोचना) with Hindi-style ("sochnā",
+                # "chalnā", "choṛnā") conventions for च/छ and ड़, which
+                # produced broken roots like "soc", "bec", "parh", "chod"
+                # (correct: "soch", "bech", "padh", "chhod"). A survives
+                # only as a fallback for degenerate Devanagari stems.
+                dev_stem = raw_word[:-2]  # strip 'ना'
+                base_root = transliterate_devanagari_stem(dev_stem)
 
-                # Strategy B: Fallback to direct Devanagari stem transliteration
+                # Strategy A (fallback): Check Wiktionary romanization
                 if not base_root:
-                    dev_stem = raw_word[:-2]  # strip 'ना'
-                    base_root = transliterate_devanagari_stem(dev_stem)
+                    for form_info in entry.get("forms", []):
+                        if "romanization" in form_info.get("tags", []):
+                            r_form = form_info.get("form", "")
+                            clean_r = normalize_wiktionary_romanization(r_form)
+                            if clean_r.endswith("na") and len(clean_r) > 2:
+                                base_root = clean_r[:-2]
+                            break
 
                 # FATAL FIX: keep internal spaces for compound stems
                 # ("abhinay kar", not *"abhinaykar").
@@ -304,6 +327,15 @@ class HindiRomanizedRootPipeline:
                     continue
 
                 if base_root in seen_roots:
+                    # Homographs share one root (चल = "cheat" AND "walk"):
+                    # merge distinct glosses instead of dropping senses.
+                    if meaning:
+                        for r in results:
+                            if r["root"] == base_root:
+                                if meaning not in r["meaning_en"] and \
+                                        len(r["meaning_en"]) < 160:
+                                    r["meaning_en"] += "; " + meaning
+                                break
                     continue
                 seen_roots.add(base_root)
 
@@ -448,6 +480,35 @@ class HindiRomanizedRootPipeline:
             "gerundive": {"phrase": f"{root}te hue"}
         }
 
+    # Curated ultra-common verbs verified absent from the Kaikki dump
+    # (spellings follow this pipeline's scheme). Hand-glossed; each is
+    # unambiguous core vocabulary, e.g. जवाब दे = "jawab de".
+    CURATED_ROOTS = [
+        ("jawab de", "to answer, reply"),
+        ("shuru kar", "to begin, start"),
+        ("khatm kar", "to finish, complete; to end"),
+        ("talash kar", "to search, look for"),
+        ("band kar", "to close, shut"),
+        ("maar", "to hit, beat, kill"),
+        ("manzur kar", "to approve, accept"),
+        ("ulti kar", "to vomit"),
+        ("bichha", "to lay out, spread"),
+        ("mang", "to ask for, demand"),
+        ("sharm", "to feel shy"),
+        ("sulajh", "to be solved, resolved"),
+        ("mangva", "to order, commission, send for"),
+        # Ultra-common but Kaikki-glossed only as a pointer ("alternative
+        # spelling of ... (hasna)"): upgrade to a real definition.
+        ("hans", "to laugh, chuckle"),
+    ]
+
+    # Pointer glosses a curated entry is allowed to overwrite.
+    META_GLOSS_STARTS = (
+        "alternative spelling of", "alternative form of",
+        "nuqtaless form of", "misspelling of", "synonym of",
+        "antonym of",
+    )
+
     # NOTE: filename must match index.html loader (India/hindi.sqlite).
     def build_database(self, db_path: str = "hindi.sqlite", limit: int = None):
         if not self.dataset_file_path or not os.path.exists(self.dataset_file_path):
@@ -455,6 +516,15 @@ class HindiRomanizedRootPipeline:
             return
 
         dataset = self.parse_kaikki_jsonl(self.dataset_file_path)
+        by_root = {d["root"]: d for d in dataset}
+        for root, gloss in self.CURATED_ROOTS:
+            if root not in by_root:
+                dataset.append({"root": root, "meaning_en": gloss})
+                by_root[root] = dataset[-1]
+            elif by_root[root]["meaning_en"].lower().startswith(
+                    self.META_GLOSS_STARTS):
+                by_root[root]["meaning_en"] = gloss
+        print(f"Dataset with curated supplement: {len(dataset)} roots.")
         if limit:
             dataset = dataset[:limit]
 

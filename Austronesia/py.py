@@ -124,6 +124,10 @@ MALAY_VERB_ROOTS = {
     "lengah", "lerai", "limpah", "lutut", "megah", "lucut", "aku",
     "meterai", "mimpi", "muat", "musnah", "nafas", "naung", "niat",
     "nyata", "sesal", "tambah",
+    # Wiktionary-attested verbs (POS=verb in Kaikki; guards short-stem
+    # over-stripping like mengecat->cat so these must be listed)
+    "adu", "seka", "luncur", "cucuk", "kecap", "kisah", "asah", "tuju",
+    "tinjau", "angkat",
 }
 
 # Verbs that MUST take ber-/be-/bel- in standard (intransitive).
@@ -202,9 +206,17 @@ def extract_pure_root(word: str):
 
     def strip_one_suffix(ww):
         # returns (new_w, suf) or (None, None); prefers verb-list remainder
+        _all_pres = tuple(long_prefixes) + tuple(short_prefixes)
         cands = []
         for suf in suffixes:
             if ww.endswith(suf) and len(ww) - len(suf) >= 3:
+                # Never strip root-final -i off a diphthong in a PREFIXLESS
+                # word (abai->aba, capai->capa, cukai->cuka): the -ai/-oi
+                # is the root. Prefixed words keep stripping (dijumpai ->
+                # dijumpa -> jumpa), since the prefix phase resolves them.
+                if suf == "i" and len(ww) >= 2 and ww[-2].lower() in "aeou" \
+                        and not ww.startswith(_all_pres):
+                    continue
                 cands.append((ww[: -len(suf)], suf))
         if not cands:
             return None, None
@@ -305,7 +317,10 @@ def extract_pure_root(word: str):
 def purify_malay_root(ms_word: str):
     """Return (pure_root or None, affixes, reason). Strict: pure must be verb."""
     w = (ms_word or "").lower().strip()
-    if not w or not w.isalpha() or not (3 <= len(w) <= 12):
+    # FATAL FIX: str.isalpha() is True for Jawi (Arabic-script) words, which
+    # flooded the lexicon with ~900 script-duplicates of Latin entries.
+    # Malay Rumi is pure ASCII; Jawi forms are rejected, not stemmed.
+    if not w or not w.isascii() or not w.isalpha() or not (3 <= len(w) <= 12):
         return None, [], "bad-shape"
     if w in MONTH_BLOCK or w in NON_VERB_BLOCKLIST:
         return None, [], "noun-blocked"
@@ -320,6 +335,85 @@ def purify_malay_root(ms_word: str):
     if affixes and stem not in NON_VERB_BLOCKLIST and stem not in MONTH_BLOCK \
             and 4 <= len(stem) <= 8 and stem.isalpha():
         return stem, affixes, "stem-novel"
+    return None, affixes, "no-valid-root"
+
+
+# Gloss patterns that mark a dictionary entry as a pointer/inflection rather
+# than a real verb sense. Such entries are skipped (their lemma carries the
+# meaning). Matched case-insensitively against the raw gloss.
+META_GLOSS_PATTERNS = (
+    "alternative", "misspelling", "abbreviation", "initialism", "acronym",
+    "synonym of", "antonym of", "form of", "clipping", "short for",
+    "ellipsis", "variant of", "passive of", "active of", "imperative of",
+    "first-person", "second-person", "third-person", "plural of",
+    "singular of", "present of", "past of", "participle of", "gerund of",
+    "infinitive of",
+)
+EXISTENTIAL_BARE = {"there is", "there are", "there was", "there were"}
+
+
+def normalize_kaikki_gloss(gloss: str) -> str:
+    """Normalizes a Wiktionary verb gloss to our "to X" style.
+
+    Returns "" when the gloss is a pointer ("alternative ... form of ..."),
+    an inflection description ("first-person ... passive of ..."), or
+    otherwise unusable. Wiktionary POS=verb is trusted, so bare phrases
+    like "feign; pretend" safely become "to feign".
+    """
+    g = (gloss or "").strip()
+    if not g:
+        return ""
+    low = g.lower()
+    if any(k in low for k in META_GLOSS_PATTERNS):
+        return ""
+    for part in re.split(r"[;/]", g):
+        p = part.strip().strip(".")
+        if not p:
+            continue
+        if p.lower().startswith("to "):
+            core = p[3:].strip()
+        else:
+            core = p
+        # Cut subordinate clauses first, THEN validate: "There are, there
+        # is." -> core "there are" -> existential -> skip (not "to there are").
+        core = re.split(r"[,()]", core)[0].strip()
+        if core.lower() in EXISTENTIAL_BARE:
+            continue
+        core = re.sub(r"\s+", " ", core)
+        if not core or len(core.split()) > 6:
+            continue
+        if not re.match(r"^[a-zA-Z][a-zA-Z \-']*$", core):
+            continue
+        return "to " + core[:1].lower() + core[1:]
+    return ""
+
+
+def purify_malay_root_wiktionary(ms_word: str):
+    """POS-gated variant of purify_malay_root for Wiktionary POS=verb entries.
+
+    The dictionary already guarantees verbhood, so stems only need to be
+    plausible kata dasar (correct length, not a blocked noun/month) — they
+    do NOT need to sit in our hand-built verb list. This is the expansion
+    path for genuine verbs our list does not cover yet.
+    """
+    w = (ms_word or "").lower().strip()
+    if not w or not w.isascii() or not w.isalpha() or not (3 <= len(w) <= 12):
+        return None, [], "bad-shape"
+    if w in MONTH_BLOCK or w in NON_VERB_BLOCKLIST:
+        return None, [], "noun-blocked"
+    stem, affixes = extract_pure_root(w)
+    if stem in MALAY_VERB_ROOTS and stem not in NON_VERB_BLOCKLIST:
+        return stem, affixes, "wikt-stem-verb"
+    if w in MALAY_VERB_ROOTS:
+        return w, [], "wikt-base-verb"
+    # Short stems reached only by stripping (berita->ita, pernah->nah)
+    # are over-strip artifacts, never true roots: true 3-letter verbs
+    # (cat, adu) arrive bare or sit in the verb list.
+    if affixes and len(stem) < 4 and stem not in MALAY_VERB_ROOTS:
+        return None, affixes, "wikt-frag"
+    if stem not in NON_VERB_BLOCKLIST and stem not in MONTH_BLOCK \
+            and 3 <= len(stem) <= 8 and stem.isalpha():
+        return stem, affixes, "wikt-stem"
     return None, affixes, "no-valid-root"
 
 
@@ -592,6 +686,63 @@ class MalayLicensedRootPipeline:
 
         return dialect_conjugations
 
+    def fetch_kaikki_malay_verbs(self) -> list:
+        """Loads Wiktionary Malay verbs from the local Kaikki dump
+        (kaikki-malay.jsonl, CC BY-SA via Wiktionary). Returns
+        (word, "to X" gloss) pairs for POS=verb lemma entries only;
+        inflected/pointer entries are skipped here (their lemmas carry
+        the meaning). Missing file -> empty list (en-ms path still works).
+        """
+        import os
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(here, "kaikki-malay.jsonl")
+        if not os.path.exists(path):
+            print("Kaikki Malay dump not found; skipping Wiktionary expansion.")
+            return []
+        pairs = []
+        seen = set()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+                    if entry.get("pos") != "verb":
+                        continue
+                    if (entry.get("lang_code") or entry.get("lang")) not in ("ms", "Malay"):
+                        continue
+                    senses = entry.get("senses", [])
+                    if any("form-of" in s.get("tags", []) or
+                           "inflection-template" in s.get("tags", []) or
+                           s.get("form_of") for s in senses):
+                        continue
+                    word = (entry.get("word", "") or "").strip().lower()
+                    if not word or word in seen:
+                        continue
+                    if not word.isascii():
+                        continue  # Jawi-script duplicate of a Rumi entry
+                    gloss = ""
+                    for s in senses:
+                        glosses = s.get("glosses") or []
+                        if not glosses:
+                            continue
+                        gloss = normalize_kaikki_gloss(glosses[0])
+                        if gloss:
+                            break
+                    if not gloss:
+                        continue
+                    seen.add(word)
+                    pairs.append((word, gloss))
+        except Exception as e:
+            print(f"Kaikki Malay read failed ({e}); continuing without it.")
+            return []
+        print(f"Kaikki Malay: {len(pairs)} verb lemmas with usable glosses.")
+        return pairs
+
     def fetch_open_source_dataset(self) -> list:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -629,6 +780,15 @@ class MalayLicensedRootPipeline:
         pure_dict: dict = {}
         stats = {"stem-verb": 0, "base-verb": 0, "stem-novel": 0, "dropped": 0}
         dropped_samples = []
+
+        def _merge(pure, meanings, reason):
+            stats[reason] = stats.get(reason, 0) + 1
+            if pure not in pure_dict:
+                pure_dict[pure] = []
+            for e in meanings:
+                if e not in pure_dict[pure]:
+                    pure_dict[pure].append(e)
+
         for ms_word, en_meanings in malay_dict.items():
             pure, affixes, reason = purify_malay_root(ms_word)
             if pure is None:
@@ -636,12 +796,20 @@ class MalayLicensedRootPipeline:
                 if len(dropped_samples) < 25:
                     dropped_samples.append(f"{ms_word}({','.join(en_meanings[:2])})[{reason}]")
                 continue
-            stats[reason] = stats.get(reason, 0) + 1
-            if pure not in pure_dict:
-                pure_dict[pure] = []
-            for e in en_meanings:
-                if e not in pure_dict[pure]:
-                    pure_dict[pure].append(e)
+            _merge(pure, en_meanings, reason)
+
+        # EXPANSION: Wiktionary Malay verbs (Kaikki, CC BY-SA) via POS-gated
+        # purifier. Wiktionary guarantees verbhood, so novel stems are
+        # accepted after stemming + blocklist (no hand-list gating).
+        for ms_word, gloss in self.fetch_kaikki_malay_verbs():
+            pure, affixes, reason = purify_malay_root_wiktionary(ms_word)
+            if pure is None:
+                stats["dropped"] += 1
+                continue
+            # gloss is already "to X" style; store the bare verb for merging
+            core = gloss[3:].strip()
+            if core:
+                _merge(pure, [core], reason)
 
         print(f"Purify stats: {stats}")
         print(f"Dropped samples: {dropped_samples[:25]}")
@@ -653,7 +821,9 @@ class MalayLicensedRootPipeline:
             meaning_str = "to " + " or ".join(en_meanings[:3])
             roots_data.append({"root": ms_word, "meaning_en": meaning_str})
 
-        roots_data = roots_data[:2000]
+        # No hard cap: the old [:2000] slice silently dropped valid verbs
+        # once Wiktionary expansion pushed the lexicon past it (2219 roots
+        # would have lost 219). 2-3k short roots stay shippable.
         print(f"Successfully filtered {len(roots_data)} pure verified roots.")
         return roots_data
 
@@ -673,11 +843,11 @@ class MalayLicensedRootPipeline:
 
         for item in dataset:
             base_root = self.sanitize_root(item.get("root", ""))
-            # final safety: must still be pure verb
-            pure, _, _ = purify_malay_root(base_root)
-            if pure:
-                base_root = pure
-            else:
+            # No re-purification here: fetch already validated every root,
+            # and re-running the purifier on STEMS (whose affix evidence was
+            # consumed at fetch time, e.g. abaikan->abai) silently dropped
+            # ~43% of the lexicon. Sanitize + shape check is sufficient.
+            if not base_root or not base_root.replace(" ", "").isalpha():
                 continue
             raw_english = item.get("meaning_en", "")
             if not base_root:
