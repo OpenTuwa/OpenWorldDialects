@@ -75,21 +75,49 @@ class MITLicensedMandarinPipeline:
         # If no verb definition was found, return empty string to discard the word entirely
         return ""
 
+    # Stative verbs that reject the perfective 了 and progressive 在.
+    # 是 never takes 了 ("*shì le") and negates with 不 even in the past
+    # ("bú shì", never *"méi shì"); 有/在/像 follow the per-verb rules below.
+    # Matched on the EXACT monosyllabic base only, so compounds like
+    # "shìyìng" (to adapt, action verb) are unaffected.
+    STATIVE_RULES = {
+        # copula/identity: no le/zài anywhere; past neg uses bù
+        "shì":   {"past_aff": "", "past_neg": "bú ", "prog_aff": "",
+                  "prog_neg": "bú ", "imp_aff": "yào ", "imp_neg": "bú yào "},
+        "xiàng": {"past_aff": "", "past_neg": "bú ", "prog_aff": "",
+                  "prog_neg": "bú ", "imp_aff": "yào ", "imp_neg": "bú yào "},
+        # possession: "yǒu le" OK, "méi yǒu" OK; only progressive is barred
+        "yǒu":   {"past_aff": " le", "past_neg": "méi ", "prog_aff": "",
+                  "prog_neg": "méi ", "imp_aff": "yào ", "imp_neg": "bú yào "},
+        # location: past neg "méi zài" OK; bare forms elsewhere (avoids
+        # *"zài le" and *"zài zài")
+        "zài":   {"past_aff": "", "past_neg": "méi ", "prog_aff": "",
+                  "prog_neg": "méi ", "imp_aff": "yào ", "imp_neg": "bú yào "},
+    }
+
     def generate_full_paradigm(self, base_word: str):
         """Generates pronouns combined with base words and Mandarin aspect particles."""
         dialect_conjugations = {}
 
         # Mandarin Aspect Markers
         spec = {
-            "past_aff": " le",       
-            "past_neg": "méi ",      
-            "pres_aff": "",          
-            "pres_neg": "bù ",       
-            "fut_aff": "huì ",       
-            "fut_neg": "bú huì ",    
-            "prog_aff": "zài ",      
-            "prog_neg": "méi zài ",  
+            "past_aff": " le",
+            "past_neg": "méi ",
+            "pres_aff": "",
+            "pres_neg": "bù ",
+            "fut_aff": "huì ",
+            "fut_neg": "bú huì ",
+            "prog_aff": "zài ",
+            "prog_neg": "méi zài ",
         }
+
+        st = self.STATIVE_RULES.get(base_word)
+        if st:
+            spec = dict(spec)
+            spec["past_aff"] = st["past_aff"]
+            spec["past_neg"] = st["past_neg"]
+            spec["prog_aff"] = st["prog_aff"]
+            spec["prog_neg"] = st["prog_neg"]
 
         for d in self.dialects:
             code = d["code"]
@@ -126,8 +154,13 @@ class MITLicensedMandarinPipeline:
             imp_aff, imp_neg = {}, {}
             for ip in self.imperative_persons:
                 pid, pron = ip["id"], ip["pinyin"]
-                imp_aff[pid] = {"pinyin": f"{pron} qǐng {base_word}"}
-                imp_neg[pid] = {"pinyin": f"{pron} qǐng bú yào {base_word}"}
+                if st:
+                    # Statives take no 请 ("*qǐng shì"); 要-command instead.
+                    imp_aff[pid] = {"pinyin": f"{pron} {st['imp_aff']}{base_word}"}
+                    imp_neg[pid] = {"pinyin": f"{pron} {st['imp_neg']}{base_word}"}
+                else:
+                    imp_aff[pid] = {"pinyin": f"{pron} qǐng {base_word}"}
+                    imp_neg[pid] = {"pinyin": f"{pron} qǐng bú yào {base_word}"}
             aspects_data["imperative"] = {"affirmative": imp_aff, "negative": imp_neg}
 
             dialect_conjugations[code] = aspects_data
@@ -207,7 +240,8 @@ class MITLicensedMandarinPipeline:
             print("No data loaded. Exiting build process.")
             return
         
-        db_path = "master_mandarin_verbs_backend.sqlite"
+        # NOTE: filename must match index.html loader (Sinitic/mandarin.sqlite).
+        db_path = "mandarin.sqlite"
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 

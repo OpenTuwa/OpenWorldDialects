@@ -21,7 +21,10 @@ DEV_CONSONANTS = {
 }
 
 DEV_INDEPENDENT_VOWELS = {
-    'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
+    # NOTE: आ maps to 'a' (not 'aa') to stay consistent with the matra ा->'a'
+    # and IAST ā normalization below, so Strategy A/B never yield duplicate
+    # roots like 'a' vs 'aa' for आना.
+    'अ': 'a', 'आ': 'a', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
     'ऋ': 'ri', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au'
 }
 
@@ -67,8 +70,10 @@ def transliterate_devanagari_stem(dev_stem: str) -> str:
             elif i + 1 < n and text[i+1] in DEV_MATRAS:
                 out.append(base + DEV_MATRAS[text[i+1]])
                 i += 2
-            elif i + 1 == n:
-                # Schwa deletion at terminal consonant of root stem
+            elif i + 1 == n or text[i+1] == " ":
+                # Schwa deletion at the end of a word, not just the end of
+                # the whole stem: "अभिनय कर" -> "abhinay kar" (never
+                # *"abhinaya kar"), "धन्यवाद दे" -> "dhanyavad de".
                 out.append(base)
                 i += 1
             else:
@@ -95,7 +100,11 @@ def normalize_wiktionary_romanization(roman: str) -> str:
     # Strip any remaining Unicode accents
     nfkd = unicodedata.normalize('NFKD', text)
     clean = "".join(c for c in nfkd if unicodedata.category(c) != 'Mn')
-    return re.sub(r"[^a-zA-Z]", "", clean.lower()).strip()
+    # FATAL FIX: preserve internal spaces so compound verb stems
+    # (e.g. अभिनय कर, धन्यवाद दे) stay "abhinay kar", not merged garbage
+    # like "abhinaykar" which would conjugate as *"abhinaykarta hai".
+    clean = re.sub(r"[^a-zA-Z ]", "", clean.lower())
+    return re.sub(r"\s+", " ", clean).strip()
 
 
 class HindiPhonologyEngine:
@@ -137,15 +146,34 @@ class HindiPhonologyEngine:
         }
         return mapping[pid]
 
+    # होना is suppletive in the future (होगा, not *होएगा).
+    HO_FUTURE = {
+        "unga": "hoonga", "ega": "hoga", "egi": "hogi",
+        "oge": "hoge", "ogi": "hogi", "enge": "honge", "engi": "hongi",
+    }
+
     @staticmethod
     def apply_suffix(root: str, suffix: str) -> str:
         if not suffix: return root
-        if root.endswith("ee") and suffix[0] in "aeiou":
+        # Compound stems (kept with spaces, e.g. "abhinay kar"): inflect only
+        # the final element so we get "abhinay karega", never *"abhinaykarega".
+        if " " in root:
+            head, _, tail = root.rpartition(" ")
+            return head + " " + HindiPhonologyEngine.apply_suffix(tail, suffix)
+        if root == "ho" and suffix in HindiPhonologyEngine.HO_FUTURE:
+            return HindiPhonologyEngine.HO_FUTURE[suffix]
+        if root.endswith("ee") and suffix[:1] in "aeiou":
+            # पीएगा = "piega" (not *"peeega"); पीओ = "piyo".
+            if suffix.startswith("e"):
+                return root[:-2] + "i" + suffix
             return root[:-2] + "iy" + suffix
-        if root.endswith("oo") and suffix[0] in "aeiou":
-            return root[:-2] + "uw" + suffix
-        if root.endswith("a") and suffix[0] in "aeiou":
-            if suffix.startswith("e"): return root + "y" + suffix
+        # NOTE: no oo->uw rule: छूएगा = "chooega" (concat), not *"chuwega".
+        if root.endswith("e") and suffix[:1] == "a":
+            # दे + ab/at -> deb/det (Awadhi/Bhojpuri), not *deab/*deat.
+            return root + suffix[1:]
+        if root.endswith("e") and suffix[:1] in "eiou":
+            # दे + ega/iye/o -> dega/diye/do (not *deega/*deiye/*deo).
+            return root[:-1] + suffix
         return root + suffix
 
 
@@ -193,7 +221,7 @@ class HindiRomanizedRootPipeline:
         self.pronouns_map = {
             "standard": {"1ms": "main", "1fs": "main", "2ms": "tu", "2fs": "tu", "2mp": "tum", "2fp": "tum", "2pol": "aap", "3ms": "woh", "3fs": "woh", "1mp": "hum", "1fp": "hum", "3mp": "wo", "3fp": "wo"},
             "bambaiya": {"1ms": "apun", "1fs": "apun", "2ms": "tu", "2fs": "tu", "2mp": "tum", "2fp": "tum", "2pol": "aap", "3ms": "wo", "3fs": "wo", "1mp": "apun", "1fp": "apun", "3mp": "wo log", "3fp": "wo log"},
-            "bhojpuri": {"1ms": "hum", "1fs": "hum", "2ms": "tu", "2fs": "tu", "2mp": "toh log", "2fp": "toh log", "2pol": "raua", "3ms": "oo", "3fs": "oo", "1mp": "humne ke", "1fp": "humne ke", "3mp": "oo log", "3fp": "oo log"},
+            "bhojpuri": {"1ms": "hum", "1fs": "hum", "2ms": "tu", "2fs": "tu", "2mp": "toh log", "2fp": "toh log", "2pol": "raua", "3ms": "oo", "3fs": "oo", "1mp": "hamni", "1fp": "hamni", "3mp": "oo log", "3fp": "oo log"},
             "haryanvi": {"1ms": "main", "1fs": "main", "2ms": "tu", "2fs": "tu", "2mp": "tam", "2fp": "tam", "2pol": "aap", "3ms": "wo", "3fs": "wo", "1mp": "ham", "1fp": "ham", "3mp": "we", "3fp": "we"},
             "awadhi": {"1ms": "hum", "1fs": "hum", "2ms": "tum", "2fs": "tum", "2mp": "tum sab", "2fp": "tum sab", "2pol": "aap", "3ms": "oo", "3fs": "oo", "1mp": "hum sab", "1fp": "hum sab", "3mp": "oo sab", "3fp": "oo sab"},
         }
@@ -265,7 +293,10 @@ class HindiRomanizedRootPipeline:
                     dev_stem = raw_word[:-2]  # strip 'ना'
                     base_root = transliterate_devanagari_stem(dev_stem)
 
-                base_root = re.sub(r"[^a-zA-Z]", "", base_root.lower()).strip()
+                # FATAL FIX: keep internal spaces for compound stems
+                # ("abhinay kar", not *"abhinaykar").
+                base_root = re.sub(r"[^a-zA-Z ]", "", base_root.lower())
+                base_root = re.sub(r"\s+", " ", base_root).strip()
 
                 # Basic validation
                 valid_short_roots = {"a", "ja", "kha", "pi", "pee", "so", "ro", "dho", "ho", "de", "le"}
@@ -328,7 +359,9 @@ class HindiRomanizedRootPipeline:
                     pres_neg[pid] = f"{pro} nahi {root}{rela} hai"
                     past_aff[pid] = f"{pro} {root}{rela} {th3}"
                     past_neg[pid] = f"{pro} nahi {root}{rela} {th3}"
-                    f_suf = "yegi" if "f" in pid else "yega"
+                    # Bambaiya future follows the standard pattern
+                    # ("karega", never *"karyega").
+                    f_suf = "egi" if "f" in pid else "ega"
                     f_verb = engine.apply_suffix(root, f_suf)
                     fut_aff[pid] = f"{pro} {f_verb}"
                     fut_neg[pid] = f"{pro} nahi {f_verb}"
@@ -349,9 +382,10 @@ class HindiRomanizedRootPipeline:
                     prog_aff[pid] = f"{pro} {root}{b_pres}"
                     prog_neg[pid] = f"{pro} na {root}{b_pres}"
 
-                # Haryanvi
+                # Haryanvi auxiliaries: 1st person सूं ("sun"),
+                # plural सो ("so"), 3rd सै ("se").
                 elif code == "haryanvi":
-                    h_aux = "su" if pid.startswith("1") else "sa" if "p" in pid else "se"
+                    h_aux = "sun" if pid.startswith("1") else "so" if "p" in pid else "se"
                     pres_aff[pid] = f"{pro} {root}{t3} {h_aux}"
                     pres_neg[pid] = f"{pro} na {root}{t3} {h_aux}"
                     past_aff[pid] = f"{pro} {root}{t3} {th3}"
@@ -362,12 +396,13 @@ class HindiRomanizedRootPipeline:
                     prog_aff[pid] = f"{pro} {root} {r3} {h_aux}"
                     prog_neg[pid] = f"{pro} na {root} {r3} {h_aux}"
 
-                # Awadhi
+                # Awadhi (present/past marker is -at-: "karat hai",
+                # never *"karit hai" — progressive below already used "at").
                 elif code == "awadhi":
-                    pres_aff[pid] = f"{pro} {root}it hai"
-                    pres_neg[pid] = f"{pro} na {root}it hai"
-                    past_aff[pid] = f"{pro} {root}it raha"
-                    past_neg[pid] = f"{pro} na {root}it raha"
+                    pres_aff[pid] = f"{pro} {root}at hai"
+                    pres_neg[pid] = f"{pro} na {root}at hai"
+                    past_aff[pid] = f"{pro} {root}at raha"
+                    past_neg[pid] = f"{pro} na {root}at raha"
                     fut_aff[pid] = f"{pro} {root}ab"
                     fut_neg[pid] = f"{pro} na {root}ab"
                     prog_aff[pid] = f"{pro} {root}at hai"
@@ -387,11 +422,13 @@ class HindiRomanizedRootPipeline:
                 elif code == "bhojpuri":
                     suf = "a" if "p" in pid and pid != "2pol" else "in" if pid == "2pol" else ""
                     imp_aff[pid] = f"{pro} {root}{suf}".strip()
-                    imp_neg[pid] = f"{pro} jani {root}{suf}".strip()
+                    # Eastern prohibitive is जिन ("jin"); "jani" means
+                    # "having known" and is never a prohibitive.
+                    imp_neg[pid] = f"{pro} jin {root}{suf}".strip()
                 elif code == "awadhi":
                     suf = "o" if "p" in pid else ""
                     imp_aff[pid] = f"{pro} {root}{suf}".strip()
-                    imp_neg[pid] = f"{pro} jini {root}{suf}".strip()
+                    imp_neg[pid] = f"{pro} jin {root}{suf}".strip()
 
             aspects_data["past"] = {"affirmative": past_aff, "negative": past_neg}
             aspects_data["present"] = {"affirmative": pres_aff, "negative": pres_neg}
@@ -411,7 +448,8 @@ class HindiRomanizedRootPipeline:
             "gerundive": {"phrase": f"{root}te hue"}
         }
 
-    def build_database(self, db_path: str = "master_hindi_roots_backend.sqlite", limit: int = None):
+    # NOTE: filename must match index.html loader (India/hindi.sqlite).
+    def build_database(self, db_path: str = "hindi.sqlite", limit: int = None):
         if not self.dataset_file_path or not os.path.exists(self.dataset_file_path):
             print(f"Error: Dataset file '{self.dataset_file_path}' not found.")
             return
@@ -424,9 +462,11 @@ class HindiRomanizedRootPipeline:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Optimize SQLite for bulk writes
-        cursor.execute("PRAGMA synchronous = OFF;")
-        cursor.execute("PRAGMA journal_mode = MEMORY;")
+        # NOTE: no synchronous=OFF / journal_mode=MEMORY here. Those bulk-load
+        # pragmas turn any killed build into a permanently corrupt database
+        # ("database disk image is malformed" on the next run); the shipped
+        # hindi.sqlite died exactly that way. Default journaling is slower
+        # but crash-safe; a rebuild is always reproducible from the dump.
         cursor.execute("PRAGMA foreign_keys = ON;")
 
         cursor.execute("""
@@ -505,7 +545,12 @@ class HindiRomanizedRootPipeline:
 
             processed += 1
             if processed % 100 == 0 or processed == total:
-                print(f"[{processed}/{total}] Processed: '{base_root}' ({raw_english[:35]}...)")
+                # FATAL FIX: meanings carry macrons/Devanagari that crash
+                # Windows cp1252 consoles mid-build (leaving a half-written,
+                # corrupt database behind). Print ASCII-safe progress only.
+                safe_meaning = raw_english[:35].encode("ascii", "replace").decode("ascii")
+                safe_root = base_root.encode("ascii", "replace").decode("ascii")
+                print(f"[{processed}/{total}] Processed: '{safe_root}' ({safe_meaning}...)")
 
         conn.commit()
         conn.close()

@@ -4,7 +4,7 @@ import subprocess
 import time
 
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-DB_PATH = "master_arabic_roots_backend.sqlite"
+DB_PATH = "arabic.sqlite"
 ROOTS_PER_VOLUME = 5
 
 def cleanup_zombies():

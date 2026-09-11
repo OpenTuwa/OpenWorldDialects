@@ -227,7 +227,10 @@ class MITLicensedRootPipeline:
             },
             "levantine_2_palestine": {
                 "pres_pfx_ar": "بـ", "pres_pfx_en": "b-",
-                "fut_pfx_ar": "بدّو ", "fut_pfx_en": "biddo ",
+                # FATAL FIX: Palestinian future is رح ("ra7"), as in
+                # "rah yektob". بدّو ("biddo" = "he wants") is not a
+                # future marker at all.
+                "fut_pfx_ar": "رح ", "fut_pfx_en": "ra7 ",
                 "prog_pfx_ar": "قاعد بـ", "prog_pfx_en": "gaa3ed b-",
                 "past_neg_ar": ("ما ", "ش"), "past_neg_en": ("ma ", "-sh"),
                 "pres_neg_ar": ("ما بـ", "ش"), "pres_neg_en": ("mab-", "-sh"),
@@ -333,11 +336,26 @@ class MITLicensedRootPipeline:
             spec = dialect_specs[code]
             aspects_data = {}
 
+            # FATAL FIX (MSA): the shared tables use colloquial 2nd-plural
+            # stems ("توا/tu", "...وا/oo") which are wrong for MSA:
+            # MSA 2p past = كتبتم (katabtum, not *katabtu),
+            # MSA 2p/3p present = تكتبون/يكتبون (...oona, not ...oo).
+            pa = past_affixes
+            pr = pres_affixes
+            if code == "msa":
+                pa = dict(past_affixes)
+                pa["2p"] = {"ar_suf": "تم", "en_suf": "tum"}
+                pr = dict(pres_affixes)
+                e2p = dict(pr["2p"]); e2p["ar_suf"] = "ون"; e2p["en_suf"] = "oona"
+                e3p = dict(pr["3p"]); e3p["ar_suf"] = "ون"; e3p["en_suf"] = "oona"
+                pr["2p"] = e2p
+                pr["3p"] = e3p
+
             past_aff = {}
             past_neg = {}
             for p in self.persons:
                 pid = p["id"]
-                aff = past_affixes[pid]
+                aff = pa[pid]
                 stem_ar = f"{base_ar}{aff['ar_suf']}"
                 stem_en = f"{E1}a{E2}a{E3}{aff['en_suf']}"
                 past_aff[pid] = {"arabic": stem_ar, "arabizi": stem_en}
@@ -353,7 +371,7 @@ class MITLicensedRootPipeline:
             pres_neg = {}
             for p in self.persons:
                 pid = p["id"]
-                aff = pres_affixes[pid]
+                aff = pr[pid]
                 stem_ar = f"{aff['ar_pre']}{base_ar}{aff['ar_suf']}"
                 stem_en = f"{aff['en_pre']}{base_en}{aff['en_suf']}"
 
@@ -372,7 +390,7 @@ class MITLicensedRootPipeline:
             fut_neg = {}
             for p in self.persons:
                 pid = p["id"]
-                aff = pres_affixes[pid]
+                aff = pr[pid]
                 stem_ar = f"{aff['ar_pre']}{base_ar}{aff['ar_suf']}"
                 stem_en = f"{aff['en_pre']}{base_en}{aff['en_suf']}"
 
@@ -384,6 +402,14 @@ class MITLicensedRootPipeline:
                 pre_en, suf_en = spec["fut_neg_en"]
                 neg_ar = f"{pre_ar}{stem_ar}{suf_ar}"
                 neg_en = f"{pre_en}{stem_en}{suf_en}".strip()
+                if code == "msa" and pid in ("2p", "3p"):
+                    # لن governs the subjunctive (mansub): indicative ون
+                    # becomes وا with alif al-fariqa ("لن تكتبوا",
+                    # never *"لن تكتبون" or *"لن تكتبو").
+                    if neg_ar.endswith("ون"):
+                        neg_ar = neg_ar[:-1] + "ا"
+                    if neg_en.endswith("na"):
+                        neg_en = neg_en[:-2]
                 fut_neg[pid] = {"arabic": neg_ar, "arabizi": neg_en}
             aspects_data["future"] = {"affirmative": fut_aff, "negative": fut_neg}
 
@@ -391,7 +417,7 @@ class MITLicensedRootPipeline:
             prog_neg = {}
             for p in self.persons:
                 pid = p["id"]
-                aff = pres_affixes[pid]
+                aff = pr[pid]
                 stem_ar = f"{aff['ar_pre']}{base_ar}{aff['ar_suf']}"
                 stem_en = f"{aff['en_pre']}{base_en}{aff['en_suf']}"
 
@@ -491,7 +517,8 @@ class MITLicensedRootPipeline:
     def build_database(self):
         dataset = self.fetch_mit_dataset()
         
-        db_path = "master_arabic_roots_backend.sqlite"
+        # NOTE: filename must match index.html loader (MENA/arabic.sqlite).
+        db_path = "arabic.sqlite"
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -559,10 +586,13 @@ class MITLicensedRootPipeline:
                         healed = True
                         break
                 if not healed:
-                    raw_english = self.lexical_backup.get(
-                        mother_arabic,
-                        f"to signify the primary conceptual action of {mother_arabic}",
-                    )
+                    if mother_arabic in self.lexical_backup:
+                        raw_english = self.lexical_backup[mother_arabic]
+                    else:
+                        # FATAL FIX: never invent placeholder glosses
+                        # ("to signify the primary conceptual action of X"
+                        # is fake English). Drop unglossable roots instead.
+                        continue
 
             arabizi = self.generate_arabizi(raw_root)
             formatted_english = self.format_english_definition(raw_english, mother_arabic)
