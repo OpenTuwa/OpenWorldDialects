@@ -4,7 +4,7 @@ OpenWorldDialects is an open, in-progress research repository for the systematic
 
 This project builds **open dialect databases, dialect dictionaries, morphological paradigms, conjugation tables, and cross-dialectal parallel corpora** for use by **linguists, dialectologists, language researchers, computational linguists, NLP engineers, low-resource language developers, and language documentation projects**.
 
-The repository is **actively expanding**. Current data covers initial language families including Sinitic (Mandarin Chinese), Semitic / Arabic dialect continuum (MENA), Austronesian / Malayic varieties (Austronesia), and Indo-Aryan / Hindi varieties (India). These are starting points, not the scope. Additional languages, dialects, sociolects, and regional varieties are being added on an ongoing basis.
+The repository is **actively expanding**. Current data covers initial language families including Sinitic (Mandarin Chinese), Semitic / Arabic dialect continuum (MENA), Austronesian / Malayic varieties (Austronesia), Indo-Aryan / Hindi varieties (India), and Romance (Spanish dialects). These are starting points, not the scope. Additional languages, dialects, sociolects, and regional varieties are being added on an ongoing basis.
 
 No backend. No proprietary format. Plain Python pipelines that generate queryable SQLite corpora, plus a static browser viewer for manual inspection.
 
@@ -49,6 +49,7 @@ Coverage is versioned by directory and will grow. Do not treat the current set a
 - **MENA / Arabic dialect continuum**: triliteral root-based paradigms across Modern Standard Arabic and regional spoken varieties including Egyptian, Levantine, Palestinian, Iraqi, Gulf, Najdi, Hijazi, Yemeni, Sudanese, Moroccan Darija, and Tunisian, with Arabic script and Arabizi romanization in parallel.
 - **Austronesia / Malayic**: Standard Malay and regional / colloquial varieties including Klang Valley colloquial, Kelantanese, Terengganuan, Kedahan, Perakian, Negeri Sembilan, Sarawakian, and Sabahan, with prefix morphology (meN- / peN-), nasalization, and state-level sound shifts.
 - **India / Hindi continuum**: Standard Hindi and regional / contact varieties including Bambaiya, Bhojpuri, Haryanvi, and Awadhi, with full Hindi auxiliary agreement and Romanized output.
+- **Romance / Spanish**: Spanish verb paradigms generated systematically for thousands of regular and orthographically-shifting verbs, covering Standard Peninsular (vosotros), Latin American (ustedes), Rioplatense (voseo/vos), and Chilean (informal voseo).
 
 Planned direction includes broader coverage of Arabic vernaculars, Malay archipelago varieties, South Asian regional speech, Sinitic colloquial variation, and additional unrelated families as contributors add pipelines. The schema is deliberately generic to accommodate new languages without redesign.
 
@@ -69,7 +70,7 @@ This is **rule-based paradigm generation from documented templates**, not crowd-
 Schema varies slightly by language family but follows a consistent pattern:
 
 - `roots` / `verbs`: `id, base form, romanization / transliteration, English gloss`
-  - e.g., `mother_arabic, sub_arabizi, sub_english` for Arabic; `base_root, meaning_english` for Malay / Hindi; `base_pinyin, sub_english` for Mandarin
+  - e.g., `mother_arabic, sub_arabizi, sub_english` for Arabic; `base_root, meaning_english` for Malay / Hindi / Spanish; `base_pinyin, sub_english` for Mandarin
 - `conjugations`: `id, root_id, dialect, aspect, polarity, person_id, person, number, gender, form`
   - form columns are language-appropriate: `arabic, arabizi` / `pinyin` / `phrase`
 - `nominals`: `id, root_id / verb_id, category, polarity, form`
@@ -92,60 +93,41 @@ WHERE root_id = 100 AND aspect = 'future';
 SELECT dialect, person, number, gender, phrase
 FROM conjugations
 WHERE root_id = 10 AND aspect = 'progressive' AND polarity = 'affirmative';
-```
-
-Files can be opened directly with `sqlite3`, DB Browser for SQLite, Python `sqlite3` / pandas, or R / Julia SQLite drivers. No custom loader required.
-
-## Corpus Browser
-
-`index.html` (referred to in code as Polyglot Lexicon) is a static inspection tool, not the research output itself.
-
-- Loads `*.sqlite` files via `fetch` from `raw.githubusercontent.com` or local path
-- Uses sql.js (WASM SQLite) entirely client-side
-- Caches downloaded packs in IndexedDB (`PolyglotCache`) for offline reuse
-- Search by lemma or English gloss, browse conjugations, filter by grammatical dimensions
-
+Files can be opened directly with sqlite3, DB Browser for SQLite, Python sqlite3 / pandas, or R / Julia SQLite drivers. No custom loader required.
+Corpus Browser
+index.html (referred to in code as Polyglot Lexicon) is a static inspection tool, not the research output itself.
+Loads *.sqlite files via fetch from raw.githubusercontent.com or local path
+Uses sql.js (WASM SQLite) entirely client-side
+Caches downloaded packs in IndexedDB (PolyglotCache) for offline reuse
+Search by lemma or English gloss, browse conjugations, filter by grammatical dimensions
 Use it to spot-check paradigms during development. For systematic analysis, query the SQLite files directly.
-
 To run locally:
-
-```bash
 # option 1: open directly
 # open index.html in a browser
 
 # option 2: serve (avoids file:// CORS issues with WASM on some browsers)
 python -m http.server 8000
 # then visit http://localhost:8000/
-```
-
-## Use in NLP and Computational Linguistics Research
-
+Use in NLP and Computational Linguistics Research
 The corpora are designed to be immediately usable for:
-
-- low-resource NLP baselines and data augmentation
-- dialectal morphological generation and analysis
-- dialect identification and variety classification
-- machine translation evaluation on non-standard input (dialect → English / standard → dialect)
-- paraphrase and normalization across dialects
-- pronoun resolution and agreement modeling in morphologically rich varieties
-- romanized / code-mixed text handling (Arabizi, Romanized Hindi, colloquial Malay)
-- offline educational and dictionary applications
-
+low-resource NLP baselines and data augmentation
+dialectal morphological generation and analysis
+dialect identification and variety classification
+machine translation evaluation on non-standard input (dialect → English / standard → dialect)
+paraphrase and normalization across dialects
+pronoun resolution and agreement modeling in morphologically rich varieties
+romanized / code-mixed text handling (Arabizi, Romanized Hindi, colloquial Malay)
+offline educational and dictionary applications
 Typical Python usage:
-
-```python
 import sqlite3
 conn = sqlite3.connect("MENA/arabic.sqlite")
 cur = conn.cursor()
 cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
 print(cur.fetchall())
-```
-
 No tokenization, training code, or model weights are included. This repository provides source data; modeling is left to downstream research.
-
-## Repository Structure
-
-```text
+Repository Structure
+code
+Text
 index.html
 Sinitic/
   py.py
@@ -154,93 +136,48 @@ MENA/
   py.py
   arabic.sqlite
   tashkeel.js
-  Language_Reference_Vol_*.pdf (local only, gitignored where large)
 Austronesia/
   py.py
   Malay.sqlite
 India/
   py.py
   hindi.sqlite
-  kaikki-hindi.jsonl (local only, gitignored)
-```
-
-Each `py.py` is the authoritative pipeline for its directory. SQLite files are generated artifacts checked in for direct use. Large source dumps and PDFs are intentionally gitignored.
-
-## Reproducibility: Rebuilding a Corpus
-
-Requirements: Python 3, standard library only (`sqlite3`, `json`, `urllib`, `re`, `xml` depending on pipeline). No pip install required for core builds.
-
-```bash
+Romance/
+  py.py
+  spanish.sqlite
+Each py.py is the authoritative pipeline for its directory. SQLite files are generated artifacts checked in for direct use. Large source dumps and PDFs are intentionally gitignored.
+Reproducibility: Rebuilding a Corpus
+Requirements: Python 3, standard library only (sqlite3, json, urllib, re, xml depending on pipeline). No pip install required for core builds.
 python Sinitic/py.py
 python MENA/py.py
 python Austronesia/py.py
 python India/py.py
-```
-
-Hindi requires a local `kaikki-hindi.jsonl` Wiktionary dump in `India/` (gitignored due to size). Other pipelines fetch their open sources at build time; URLs are hardcoded in each script for traceability.
-
+python Romance/py.py
+Hindi requires a local kaikki-hindi.jsonl Wiktionary dump in India/ (gitignored due to size). Other pipelines fetch their open sources at build time; URLs are hardcoded in each script for traceability.
 If a build fails due to upstream URL changes, file an issue with the failing URL and pipeline name. Pinning hashes / vendoring sources is on the roadmap.
-
-## Sources and Provenance
-
-- Mandarin: complete-hsk-vocabulary (open HSK word list, MIT-licensed source)
-- Arabic: quran-bil-quran roots dataset (Hugging Face) + fallback lexical notes in-script;sql.js runtime via CDN
-- Malay: FB MUSE English-Malay dictionary intersected with dariusk/corpora English verb list for POS control
-- Hindi: Kaikki.org Hindi Wiktionary JSONL, filtered to canonical verb lemmas ending in -ना with Devanagari → Roman transliteration
-- Frontend runtime: sql.js 1.8.0 (WASM SQLite)
-
+Sources and Provenance
+Mandarin: complete-hsk-vocabulary (open HSK word list, MIT-licensed source)
+Arabic: quran-bil-quran roots dataset (Hugging Face) + fallback lexical notes in-script;sql.js runtime via CDN
+Malay: FB MUSE English-Malay dictionary intersected with dariusk/corpora English verb list for POS control
+Hindi: Kaikki.org Hindi Wiktionary JSONL, filtered to canonical verb lemmas ending in -ना
+Spanish: FB MUSE English-Spanish intersected with dariusk/corpora English verbs for POS control, plus rule-based morphology engine
+Frontend runtime: sql.js 1.8.0 (WASM SQLite)
 Upstream licenses remain with their owners. Generated SQLite files inherit the licensing constraints of their source lexicons plus the pipeline code. See License below. If you are a data owner and need attribution corrected, open an issue.
-
-## Research Status and Limitations
-
+Research Status and Limitations
 This is active research software and data. Treat it accordingly:
-
-- Paradigms are systematic and rule-generated; they prioritize coverage over idiolectal precision.
-- Colloquial, slang, and rapidly changing urban forms (e.g., Bambaiya, Klang Valley colloquial, Darija) are approximations awaiting native-speaker review.
-- English glosses are short working glosses for search and alignment, not dictionary definitions.
-- Transliteration choices (Arabizi numerals, Pinyin tone marks, Hindi romanization without macrons) are documented in code and are themselves research decisions open to revision.
-- No claim of completeness for any dialect. Absence of a form does not mean ungrammaticality; presence does not guarantee attestation in all sub-varieties.
-
+Paradigms are systematic and rule-generated; they prioritize coverage over idiolectal precision.
+Colloquial, slang, and rapidly changing urban forms (e.g., Bambaiya, Klang Valley colloquial, Darija) are approximations awaiting native-speaker review.
+English glosses are short working glosses for search and alignment, not dictionary definitions.
+Transliteration choices (Arabizi numerals, Pinyin tone marks, Hindi romanization without macrons) are documented in code and are themselves research decisions open to revision.
+No claim of completeness for any dialect. Absence of a form does not mean ungrammaticality; presence does not guarantee attestation in all sub-varieties.
 Validation help from native speakers, dialectologists, and field linguists is explicitly welcomed.
-
-## Contributing a New Language or Dialect
-
+Contributing a New Language or Dialect
 Contributions of new pipelines are the primary way this project grows. Preferred pattern:
-
-1. Create a new top-level directory named by region / family (e.g., `Tai/`, `Turkic/`, `Bantu/`).
-2. Add a self-contained `py.py` that fetches open data, documents its sources, implements phonology / paradigm logic in readable functions, and writes a SQLite file with `roots`, `conjugations`, `nominals` tables.
-3. Keep dependencies to Python standard library where possible.
-4. Add the SQLite output path to `index.html` language list only after manual spot-checks.
-5. Open a pull request describing sources, license compatibility, dialect scope, and known limitations.
-
+Create a new top-level directory named by region / family (e.g., Tai/, Turkic/, Bantu/).
+Add a self-contained py.py that fetches open data, documents its sources, implements phonology / paradigm logic in readable functions, and writes a SQLite file with roots, conjugations, nominals tables.
+Keep dependencies to Python standard library where possible.
+Add the SQLite output path to index.html language list only after manual spot-checks.
+Open a pull request describing sources, license compatibility, dialect scope, and known limitations.
 Linguistic accuracy notes, counterexamples, and corrections to existing templates are equally valuable as code.
-
-## Roadmap
-
-- Additional language families and regional varieties
-- Versioned releases / checksums for SQLite corpora
-- Per-corpus documentation of source revision,uas generation date, and row counts
-- Native-speaker validation flags at the row level
-- Export formats beyond SQLite (CSV / JSONL / Parquet) for NLP pipelines
-- IPA fields alongside current romanizations where feasible
-- Benchmark splits for dialect identification and morphological generation tasks
-
-## Citation
-
-If you use this corpus in academic work, cite the repository revision you used:
-
-```bibtex
-@misc{openworldialects,
-  title = {OpenWorldDialects: An Open Research Corpus for World Dialects and Language Variation},
-  author = {{OpenTuwa contributors}},
-  year = {2026},
-  url = {https://github.com/OpenTuwa/OpenWorldDialects},
-  note = {Active research data. Accessed: YYYY-MM-DD. Revision: <commit hash>}
-}
-```
-
-Include the SQLite filename, pipeline revision, and access date in methods sections, as paradigms change between commits.
-
-## License
-
+License
 Pipeline code and viewer code in this repository are intended as open research software. Unless a file header states otherwise, treat code contributions as MIT-licensed. Upstream lexical sources retain their original licenses. Generated SQLite corpora are derivative research artifacts subject to both pipeline licensing and source-data licensing. Commercial or large-scale redistribution users should verify source compatibility for their use case.
